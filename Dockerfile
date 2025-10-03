@@ -12,11 +12,11 @@ RUN set -eux; \
       -ldflags "-s -w \
         -X github.com/minio/minio/cmd.Version=${VERSION} \
         -X github.com/minio/minio/cmd.CommitID=${COMMIT_ID}" \
-      -o /out/minio ./cmd/
+      -o /out/minio .
 
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata wget
-COPY --from=build --chmod=0755 /out/minio /usr/local/bin/minio
+COPY --from=build /out/minio /usr/local/bin/minio
 VOLUME ["/data", "/config"]
 ENTRYPOINT ["minio"]
 CMD ["server", "/data", "--console-address", ":9001", "--config-dir", "/config"]
