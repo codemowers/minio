@@ -32,7 +32,7 @@ RUN set -eux; \
 # -------------------------
 #  Runtime stage
 # -------------------------
-FROM --platform=$TARGETPLATFORM alpine:3.20
+FROM alpine:3.20
 
 # Minimal runtime deps
 RUN apk add --no-cache ca-certificates tzdata wget
