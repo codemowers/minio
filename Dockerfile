@@ -1,17 +1,11 @@
-FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS build
+FROM golang:1.24-alpine AS build
 ARG MINIO_VERSION=master
-ARG TARGETOS
-ARG TARGETARCH
-ARG TARGETVARIANT
+ENV GOTOOLCHAIN=auto
 ENV CGO_ENABLED=0
 RUN apk add --no-cache git ca-certificates build-base bash
 WORKDIR /src
 RUN git clone --depth 1 --branch "${MINIO_VERSION}" https://github.com/minio/minio.git .
 RUN set -eux; \
-    if [ "${TARGETARCH}" = "arm" ]; then \
-      case "${TARGETVARIANT}" in v6) export GOARM=6 ;; v7) export GOARM=7 ;; esac; \
-    fi; \
-    export GOOS="${TARGETOS}" GOARCH="${TARGETARCH}"; \
     COMMIT_ID="$(git rev-parse --short HEAD)"; \
     VERSION="$(git describe --tags --always || echo "${COMMIT_ID}")"; \
     go build -trimpath \
