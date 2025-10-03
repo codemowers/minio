@@ -1,4 +1,4 @@
-name: Build MinIO (binaries + multi-arch image)
+name: Build MinIO (multi-arch image)
 
 on:
   push:
@@ -27,67 +27,16 @@ jobs:
             });
             core.setOutput("tag", data.tag_name);
 
-  go-binaries:
-    name: Cross-compile (${{ matrix.target.name }})
-    needs: get-minio-latest
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - { name: "allwinner-a20", GOOS: "linux", GOARCH: "arm", GOARM: "7", out: "minio_linux_armv7" }
-          - { name: "rpi-arm64",     GOOS: "linux", GOARCH: "arm64", out: "minio_linux_arm64" }
-          - { name: "x86-386",       GOOS: "linux", GOARCH: "386",   out: "minio_linux_386" }
-          - { name: "amd64",         GOOS: "linux", GOARCH: "amd64", out: "minio_linux_amd64" }
-    env:
-      MINIO_VERSION: ${{ needs.get-minio-latest.outputs.minio_version }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.22.x"
-
-      - name: Fetch MinIO source
-        run: |
-          git clone --depth 1 --branch "${MINIO_VERSION}" https://github.com/minio/minio.git
-
-      - name: Get version info
-        working-directory: minio
-        run: |
-          COMMIT_ID="$(git rev-parse --short HEAD)"
-          VERSION="$(git describe --tags --always || echo "${COMMIT_ID}")"
-          echo "COMMIT_ID=${COMMIT_ID}" >> $GITHUB_ENV
-          echo "VERSION=${VERSION}" >> $GITHUB_ENV
-
-      - name: Build binary
-        working-directory: minio
-        env:
-          GOOS:   ${{ matrix.target.GOOS }}
-          GOARCH: ${{ matrix.target.GOARCH }}
-          GOARM:  ${{ matrix.target.GOARM || '' }}
-        run: |
-          CGO_ENABLED=0 go build -trimpath \
-            -ldflags "-s -w -X github.com/minio/minio/cmd.Version=${VERSION} -X github.com/minio/minio/cmd.CommitID=${COMMIT_ID}" \
-            -o "../${{ matrix.target.out }}" ./cmd
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.target.out }}
-          path: ${{ matrix.target.out }}
-
   docker-image:
     name: Build & push Docker image
-    needs: [ get-minio-latest, go-binaries ]
+    needs: [ get-minio-latest ]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
       id-token: write
     env:
+      # Docker Hub repo (must be lowercase); adjust if you use GHCR instead.
       IMAGE_NAME: ${{ github.repository }}
       MINIO_VERSION: ${{ needs.get-minio-latest.outputs.minio_version }}
     steps:
@@ -101,7 +50,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3
         with:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -109,9 +58,12 @@ jobs:
       - name: Compute tags
         id: meta
         run: |
+          # Docker Hub requires lower-case repo names
+          REPO_LC="$(echo "${IMAGE_NAME}" | tr '[:upper:]' '[:lower:]')"
           SHA_SHORT="${GITHUB_SHA::7}"
-          TAGS="${IMAGE_NAME}:${SHA_SHORT},${IMAGE_NAME}:${MINIO_VERSION},${IMAGE_NAME}:latest"
-          echo "tags=$TAGS" >> $GITHUB_OUTPUT
+          TAGS="${REPO_LC}:${SHA_SHORT},${REPO_LC}:${MINIO_VERSION},${REPO_LC}:latest"
+          echo "repo_lc=${REPO_LC}" >> "$GITHUB_OUTPUT"
+          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push multi-arch image
         uses: docker/build-push-action@v6
@@ -122,5 +74,9 @@ jobs:
           platforms: linux/arm/v7,linux/arm64,linux/386,linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ env.MINIO_VERSION }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
