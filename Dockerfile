@@ -19,6 +19,7 @@ RUN set -eux; \
         -X github.com/minio/minio/cmd.Version=${VERSION} \
         -X github.com/minio/minio/cmd.CommitID=${COMMIT_ID}" \
       -o /out/minio ./cmd/
+RUN chmod +x /out/minio
 
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata wget
